@@ -125,5 +125,7 @@ public class MainVerticle extends AbstractVerticle {
     return router;
   }
 
-
+  public static void main(String[] args) {
+    Runner.runExample(MainVerticle.class);
+  }
 }

@@ -40,13 +40,20 @@ final class AnnotationMappers {
         if(annotation.requestBody().content().length !=0) {
             io.swagger.v3.oas.models.parameters.RequestBody rb = new io.swagger.v3.oas.models.parameters.RequestBody();
 
-            Map<String, Object> map = new HashMap<String, Object>();
+            Map<String, Schema> map = new HashMap<String, Schema>();
+
             Field[] fields = annotation.requestBody().content()[0].schema().implementation().getDeclaredFields();
 
             for (Field field : fields) {
                 mapParameters(field, map);
             }
-
+            Class superclass = annotation.requestBody().content()[0].schema().implementation().getSuperclass();
+            if(superclass!=null){
+                fields = superclass.getDeclaredFields();
+                for (Field subfield : fields) {
+                    mapParameters(subfield, map);
+                }
+            }
             ObjectMapper pojoMapper = new ObjectMapper();
             pojoMapper.configure(JsonParser.Feature.ALLOW_SINGLE_QUOTES, true);
             Object example = new Object();
@@ -140,35 +147,109 @@ final class AnnotationMappers {
         });
     }
 
-    private static void mapParameters(Field field, Map<String, Object> map) {
+    private static void mapParameters(Field field, Map<String, Schema> map) {
         Class type = field.getType();
         Class componentType = field.getType().getComponentType();
 
-        Field[] fields = field.getType().getDeclaredFields();
-        if (fields.length == 0 && !isPrimitiveOrWrapper(componentType)) {
-            //this may be an array
-            fields = componentType.getDeclaredFields();
-        }
+        if(componentType==null){
+            if (isPrimitiveOrWrapper(type)) {
+                map.put(field.getName(), new Schema().type(field.getType().getSimpleName()));
+            } else {
 
-        if (isPrimitiveOrWrapper(type)) {
-            map.put(field.getName(), new Schema().type(field.getType().getSimpleName()));
-        } else {
-            HashMap<String, Object> subMap = new HashMap<String, Object>();
-            subMap.put("type", "array");
+                if(type.getSuperclass().equals(Enum.class)){
+                    //enum类型特殊处理
+                    StringSchema strschema = new StringSchema();
+                    List<String> enumList = new LinkedList<String>();
+                    for(Object obj: type.getEnumConstants()){
+                        enumList.add(((Enum<?>) obj).name());
+                    }
+                    strschema.setEnum(enumList);
+                    map.put(field.getName(),strschema);
+                }else{
+                    //object 子类型
+                    HashMap<String, Schema> subMap = new HashMap<String, Schema>();
+
+                    ObjectSchema objectschema = new ObjectSchema();
+
+                    Field[] fields = type.getDeclaredFields();
+                    for (Field subfield : fields) {
+                        mapParameters(subfield, subMap);
+                    }
+                    Class superclass = type.getSuperclass();
+                    if(superclass!=null){
+                        fields = superclass.getDeclaredFields();
+                        for (Field subfield : fields) {
+                            mapParameters(subfield, subMap);
+                        }
+                    }
+                    //query required
+                    fields = FieldUtils.getFieldsListWithAnnotation(type, Required.class).toArray(new Field[0]);
+                    List<String> requiredParameters = new ArrayList<String>();
+
+                    for(Field requiredField : fields) {
+                        requiredParameters.add(requiredField.getName());
+                    }
+                    objectschema.setRequired(requiredParameters);
+
+                    objectschema.setProperties(subMap);
+                    map.put(field.getName(),objectschema);
+                }
+            }
+        }else{
+            //数组类型
+            ArraySchema arraySchema = new ArraySchema();
 
             if(isPrimitiveOrWrapper(componentType)){
-                HashMap<String, Object> arrayMap = new HashMap<String, Object>();
-                arrayMap.put("type", componentType.getSimpleName() + "[]");
-                subMap.put("type", arrayMap);
+                arraySchema.setItems(new Schema().type(componentType.getSimpleName()));
             } else {
-                subMap.put("$ref", "#/components/schemas/" + componentType.getSimpleName());
-            }
+                if(type.getSuperclass().equals(Enum.class)){
+                    //enum类型特殊处理
+                    StringSchema strschema = new StringSchema();
+                    List<String> enumList = new LinkedList<String>();
+                    for(Object obj: type.getEnumConstants()){
+                        enumList.add(((Enum<?>) obj).name());
+                    }
+                    strschema.setEnum(enumList);
+                    arraySchema.setItems(strschema);
+                }else{
+                    //object 子类型
+                    HashMap<String, Schema> subMap = new HashMap<String, Schema>();
 
-            map.put(field.getName(), subMap);
+                    ObjectSchema objectschema = new ObjectSchema();
+
+                    Field[] fields = type.getDeclaredFields();
+                    for (Field subfield : fields) {
+                        mapParameters(subfield, subMap);
+                    }
+                    Class superclass = type.getSuperclass();
+                    if(superclass!=null){
+                        fields = superclass.getDeclaredFields();
+                        for (Field subfield : fields) {
+                            mapParameters(subfield, subMap);
+                        }
+                    }
+                    //query required
+                    fields = FieldUtils.getFieldsListWithAnnotation(type, Required.class).toArray(new Field[0]);
+                    List<String> requiredParameters = new ArrayList<String>();
+
+                    for(Field requiredField : fields) {
+                        requiredParameters.add(requiredField.getName());
+                    }
+                    objectschema.setRequired(requiredParameters);
+
+                    objectschema.setProperties(subMap);
+                    arraySchema.setItems(objectschema);
+                }
+            }
+            map.put(field.getName(),arraySchema);
         }
     }
 
     private  static Boolean isPrimitiveOrWrapper(Type type){
+        if(type==null)
+        {
+            return false;
+        }
         return type.equals(Double.class) ||
             type.equals(Float.class) ||
             type.equals(Long.class) ||

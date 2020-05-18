@@ -112,40 +112,6 @@ public class MainVerticle extends AbstractVerticle {
      */
     openAPIDoc.addTagsItem( new io.swagger.v3.oas.models.tags.Tag().name("Product").description("Product operations"));
 
-
-    // Generate the SCHEMA section of Swagger, using the definitions in the Model folder
-        ImmutableSet<ClassPath.ClassInfo> modelClasses = getClassesInPackage("io.vertx.VertxAutoSwagger.Model");
-
-        Map<String, Object> map = new HashMap<String, Object>();
-
-        for(ClassPath.ClassInfo modelClass : modelClasses){
-
-          Field[] fields = FieldUtils.getFieldsListWithAnnotation(modelClass.load(), Required.class).toArray(new
-                Field[0]);
-          List<String> requiredParameters = new ArrayList<String>();
-
-          for(Field requiredField : fields){
-              requiredParameters.add(requiredField.getName());
-          }
-
-          fields = modelClass.load().getDeclaredFields();
-
-          for (Field field : fields) {
-            mapParameters(field, map);
-          }
-
-          openAPIDoc.schema(modelClass.getSimpleName(),
-            new Schema()
-              .title(modelClass.getSimpleName())
-              .type("object")
-              .required(requiredParameters)
-              .properties(map)
-          );
-
-          map = new HashMap<String, Object>();
-        }
-    //
-
     // Serve the Swagger JSON spec out on /swagger
     router.get("/swagger").handler(res -> {
       res.response()
@@ -160,49 +126,4 @@ public class MainVerticle extends AbstractVerticle {
   }
 
 
-  private void mapParameters(Field field, Map<String, Object> map) {
-    Class type = field.getType();
-    Class componentType = field.getType().getComponentType();
-
-    if (isPrimitiveOrWrapper(type)) {
-      Schema primitiveSchema = new Schema();
-      primitiveSchema.type(field.getType().getSimpleName());
-      map.put(field.getName(), primitiveSchema);
-    } else {
-      HashMap<String, Object> subMap = new HashMap<String, Object>();
-
-      if(isPrimitiveOrWrapper(componentType)){
-        HashMap<String, Object> arrayMap = new HashMap<String, Object>();
-        arrayMap.put("type", componentType.getSimpleName() + "[]");
-        subMap.put("type", arrayMap);
-      } else {
-        subMap.put("$ref", "#/components/schemas/" + componentType.getSimpleName());
-      }
-
-      map.put(field.getName(), subMap);
-    }
-  }
-
-  private Boolean isPrimitiveOrWrapper(Type type){
-    return type.equals(Double.class) ||
-      type.equals(Float.class) ||
-      type.equals(Long.class) ||
-      type.equals(Integer.class) ||
-      type.equals(Short.class) ||
-      type.equals(Character.class) ||
-      type.equals(Byte.class) ||
-      type.equals(Boolean.class) ||
-      type.equals(String.class);
-  }
-
-  public ImmutableSet<ClassPath.ClassInfo> getClassesInPackage(String pckgname) {
-    try {
-      ClassPath classPath = ClassPath.from(Thread.currentThread().getContextClassLoader());
-      ImmutableSet<ClassPath.ClassInfo> classes = classPath.getTopLevelClasses(pckgname);
-      return classes;
-
-    } catch (Exception e) {
-      return null;
-    }
-  }
 }
